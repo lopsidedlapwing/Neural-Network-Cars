@@ -25,8 +25,8 @@ sizenn = len(layerSizes) # Number of layers in neural network
 
 # ---- Neural net functions ---- #
 
-def list_from_array(input_list): # Turns ND array of values into 1D list of values
-    return np.concatenate(deepcopy(input_list)).ravel()
+def list_from_array(input_array): # Turns ND array of values into 1D list of values
+    return np.concatenate(deepcopy(input_array)).ravel()
 
 def set_property(input_list, car_property): # List of values back to array of values, needs car_property to know array shape
     shapes = [arr.shape for arr in car_property] # Shape of each numpy array in property
