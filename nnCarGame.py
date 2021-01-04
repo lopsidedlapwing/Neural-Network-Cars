@@ -14,6 +14,7 @@ from copy import deepcopy # To quickly copy weight arrays without changing paren
 from gamecode import * # Store files not directly related to neural network in separate file
 from more_itertools import pairwise # For filling bias and weight arrays from lists
 from scipy.stats import truncnorm # Random variable normally distributed within bounds
+from scipy.stats import poisson # Distribute number of mutations around mutationRate
 
 # ---- Global neural net variables ---- #
 
@@ -21,15 +22,16 @@ inputLayerSize = 6  # Number of input vertices - five distance lines and current
 hiddenLayerSize = 6 # One hidden layer with six vertices/neurons
 outputLayerSize = 4 # Accelerate, brake, right, left
 layerSizes = [inputLayerSize, hiddenLayerSize, outputLayerSize]
-sizenn = len(layerSizes) # Number of layers in neural network
+number_of_weights = sum([a * b for a, b in pairwise(layerSizes)])
+number_of_biases = sum(layerSizes[1:])
 
 # ---- Neural net functions ---- #
 
 def list_from_array(input_array): # Turns ND array of values into 1D list of values
     return np.concatenate(deepcopy(input_array)).ravel()
 
-def set_property(input_list, car_property): # List of values back to array of values, needs car_property to know array shape
-    shapes = [arr.shape for arr in car_property] # Shape of each numpy array in property
+def array_from_list(input_list, target_array): # List of values back to array of values, needs car_property to know array shape
+    shapes = [arr.shape for arr in target_array] # Shape of each numpy array in property
     counts = [0] + [x*y for x, y in shapes] # Number of elements in each numpy array, plus zero for indexing
     index_pairs = pairwise(np.cumsum(counts)) # Slices of list corresponding to each array
     return [input_list[a:b].reshape(shape) for (a, b), shape in zip(index_pairs, shapes)] # Sets values into array
@@ -40,12 +42,9 @@ def modify_n_randomly(values_array, n=1): # Mutates the given values_array (weig
     coefficients = [m + 1 for m in truncnorm.rvs(-0.9, 0.9, size=n)] # n random numbers, normal distribution between 0 and 2
     for index, coefficient in zip(indices, coefficients):
         values_list[index] = values_list[index] * coefficient # Changes values in list
-    return set_property(values_list, values_array) # Reads modified list values back into array
+    return array_from_list(values_list, values_array) # Reads modified list values back into array
 
 # ---- Game functions ---- #
-
-def calculateDistance(x1, y1, x2, y2): #Used to calculate distance between points
-    return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
 
 def move_point(point, angle, unit): #Translate a point in a given direction
     x, y = point
@@ -60,119 +59,6 @@ def rotation(origin, point, angle): #Used to rotate points #rotate(origin, point
     qx = ox + math.cos(angle) * (px - ox) - math.sin(angle) * (py - oy)
     qy = oy + math.sin(angle) * (px - ox) + math.cos(angle) * (py - oy)
     return qx, qy
-
-# ---- Game classes ---- #
-
-class Car:
-    def __init__(self, sizes):
-        self.biases = [np.random.randn(y, 1) for y in sizes[1:]] #Biases
-        self.weights = [np.random.randn(y, x) for x, y in zip(sizes[:-1], sizes[1:])] #Weights
-        self.collision_points = [(0, 0)] * 5 # Points at which car could collide
-        self.distances = [0] * 5 # Distances to above points, drawn in-game as red lines
-        self.angle_offsets = [0, 45, -45, 90, -90] # Relative angles of collision lines
-        self.yaReste = False # Has the car collided?
-        self.collided = False
-        self.inp = np.array([[dist] for dist in self.distances]) # Input to neural network
-        self.outp = np.array([[0], [0], [0], [0]]) # Output from neural network
-        self.showlines = False #Boolean used for toggling distance lines
-        self.x = 120
-        self.y = 480
-        self.corners = [(self.x, self.y)] * 4
-        self.height = 35
-        self.width = 17
-        self.velocity = 0
-        self.acceleration = 0
-        self.angle = 180
-        self.set_corners()
-        self.color = white
-        self.car_image = white_small_car
-
-    def set_corners(self):
-        self.corners[0] = self.x - self.width/2, self.y - self.height/2
-        self.corners[1] = self.x + self.width/2, self.y - self.height/2
-        self.corners[2] = self.x + self.width/2, self.y + self.height/2
-        self.corners[3] = self.x - self.width/2, self.y + self.height/2
-        self.corners = [rotation((self.x, self.y), corner, math.radians(self.angle)) for corner in self.corners]
-
-    def set_accel(self, accel):
-        self.acceleration = accel
-
-    def rotate(self, rot):
-        self.angle += rot
-        self.angle = self.angle % 360
-
-    def is_track(self, point):
-        point = int(point[0]), int(point[1])
-        return track_image.get_at(point).a != 0
-
-    def update(self): #En cada frame actualizo los vertices (traslacion y rotacion) y los puntos de colision
-        if self.collided:
-            return # Save running calculations on a crashed car that can't move anyway
-
-        self.x, self.y = move_point((self.x, self.y), self.angle, self.velocity)
-        self.set_corners()
-
-        if self.acceleration != 0:
-            self.velocity += self.acceleration
-            if self.velocity > maxspeed:
-                self.velocity = maxspeed
-            elif self.velocity < 0:
-                self.velocity = 0
-        else:
-            self.velocity *= 0.92 # Friction
-
-        self.collision_points = [(self.x, self.y)] * 5
-        new_collision_points = []
-        for point, angle_offset in zip(self.collision_points, self.angle_offsets):
-            angle = self.angle + angle_offset
-            while self.is_track(point):
-                point = move_point(point, angle, 10)
-            while not self.is_track(point):
-                point = move_point(point, angle, -1)
-            new_collision_points.append(point)
-        self.collision_points = new_collision_points
-
-        self.distances = [int(calculateDistance(self.x, self.y, cp[0], cp[1])) for cp in self.collision_points]
-
-    def draw(self, display):
-        rotated_image = pygame.transform.rotate(self.car_image, -self.angle-180)
-        rect_rotated_image = rotated_image.get_rect()
-        rect_rotated_image.center = self.x, self.y
-        gameDisplay.blit(rotated_image, rect_rotated_image)
-
-        if self.showlines:
-            [pygame.draw.line(gameDisplay, Color_line, (self.x, self.y), c, 2) for c in self.collision_points]
-
-    def feedforward(self):
-        self.inp = np.array([[dist] for dist in self.distances] + [[self.velocity]])
-        for b, w in zip(self.biases, self.weights):
-            self.inp = expit(np.dot(w, self.inp) + b)
-        self.outp = self.inp
-
-    def collision(self):
-        has_not_collided = all(map(self.is_track, self.corners))
-        return not has_not_collided # Easier to work out if car hasn't collided and return the negation
-
-    def resetPosition(self):
-        self.x = 120
-        self.y = 480
-        self.angle = 180
-
-    def takeAction(self):
-        if self.outp.item(0) > 0.5: #Accelerate
-            self.set_accel(0.2)
-        else:
-            self.set_accel(0)
-        if self.outp.item(1) > 0.5: #Brake
-            self.set_accel(-0.2)
-        if self.outp.item(2) > 0.5: #Turn right
-            self.rotate(-5)
-        if self.outp.item(3) > 0.5: #Turn left
-            self.rotate(5)
-
-player_car = Car(layerSizes) # Car instance driven by player, technically a global variable but must come after Car definition
-for i in range(num_of_nnCars): # Populate game with neural net-driven cars
-    nnCars.append(Car(layerSizes))
 
 def displayTexts(): # Info text displayed on game window, hide with 'd'
     global selectedCars
@@ -217,7 +103,10 @@ def redrawGameWindow(): #Called on every frame
     global alive
     global frames
     global img
-
+    global is_paused
+    global player_car
+    if is_paused:
+        return
     frames += 1
     gameD = gameDisplay.blit(bg, (0, 0))
 
@@ -250,10 +139,116 @@ def redrawGameWindow(): #Called on every frame
 
     pygame.display.update()
 
+# ---- Car class ---- #
+
+class Car:
+    def __init__(self, sizes):
+        self.biases = [np.random.randn(y, 1) for y in sizes[1:]] #Biases
+        self.weights = [np.random.randn(y, x) for x, y in zip(sizes[:-1], sizes[1:])] #Weights
+        #self.biases = [np.random.uniform(size=(y, 1)) for y in sizes[1:]] #Biases
+        #self.weights = [np.random.uniform(size=(y, x)) for x, y in zip(sizes[:-1], sizes[1:])] #Weights
+        self.collision_points = [(0, 0)] * 5 # Points at which car could collide
+        self.distances = [0] * 5 # Distances to above points, drawn in-game as red lines
+        self.angle_offsets = [0, 45, -45, 90, -90] # Relative angles of collision lines
+        self.yaReste = False # Has the car collided?
+        self.collided = False
+        self.inp = np.array([[dist] for dist in self.distances]) # Input to neural network
+        self.outp = np.array([[0], [0], [0], [0]]) # Output from neural network
+        self.showlines = False #Boolean used for toggling distance lines
+        self.x = 120
+        self.y = 480
+        self.corners = [(self.x, self.y)] * 4
+        self.height = 35
+        self.width = 17
+        self.velocity = 0
+        self.acceleration = 0
+        self.angle = 180
+        self.set_corners()
+        self.color = white
+        self.car_image = white_small_car
+
+    def set_corners(self):
+        self.corners[0] = self.x - self.width/2, self.y - self.height/2
+        self.corners[1] = self.x + self.width/2, self.y - self.height/2
+        self.corners[2] = self.x + self.width/2, self.y + self.height/2
+        self.corners[3] = self.x - self.width/2, self.y + self.height/2
+        self.corners = [rotation((self.x, self.y), corner, math.radians(self.angle)) for corner in self.corners]
+
+    def rotate(self, rot):
+        self.angle += rot
+        self.angle = self.angle % 360
+
+    def is_track(self, point):
+        point = int(point[0]), int(point[1])
+        return track_image.get_at(point).a != 0
+
+    def update(self): #En cada frame actualizo los vertices (traslacion y rotacion) y los puntos de colision
+        self.x, self.y = move_point((self.x, self.y), self.angle, self.velocity)
+        self.set_corners()
+
+        if self.acceleration != 0:
+            self.velocity += self.acceleration
+            if self.velocity > maxspeed:
+                self.velocity = maxspeed
+            elif self.velocity < 0:
+                self.velocity = 0
+        else:
+            self.velocity *= 0.92 # Friction
+
+        self.collision_points = [(self.x, self.y)] * 5
+        new_collision_points = []
+        for point, angle_offset in zip(self.collision_points, self.angle_offsets):
+            angle = self.angle + angle_offset
+            while self.is_track(point):
+                point = move_point(point, angle, 10)
+            while not self.is_track(point):
+                point = move_point(point, angle, -1)
+            new_collision_points.append(point)
+        self.collision_points = new_collision_points
+
+        self.distances = [int(math.dist((self.x, self.y), (cp[0], cp[1]))) for cp in self.collision_points]
+
+    def draw(self, display):
+        rotated_image = pygame.transform.rotate(self.car_image, -self.angle-180)
+        rect_rotated_image = rotated_image.get_rect()
+        rect_rotated_image.center = self.x, self.y
+        gameDisplay.blit(rotated_image, rect_rotated_image)
+
+        if self.showlines:
+            [pygame.draw.line(gameDisplay, Color_line, (self.x, self.y), c, 2) for c in self.collision_points]
+
+    def feedforward(self):
+        self.inp = np.array([[dist] for dist in self.distances] + [[self.velocity]])
+        for b, w in zip(self.biases, self.weights):
+            self.inp = expit(np.dot(w, self.inp) + b)
+        self.outp = self.inp
+
+    def collision(self):
+        has_not_collided = all(map(self.is_track, self.corners))
+        return not has_not_collided # Easier to work out if car hasn't collided and return the negation
+
+    def resetPosition(self):
+        self.x = 120
+        self.y = 480
+        self.angle = 180
+
+    def takeAction(self):
+        if self.outp.item(0) > 0.5: #Accelerate
+            self.acceleration = 0.2
+        else:
+            self.acceleration = 0
+        if self.outp.item(1) > 0.5: #Brake
+            self.acceleration = -0.2
+        if self.outp.item(2) > 0.5: #Turn right
+            self.rotate(-5)
+        if self.outp.item(3) > 0.5: #Turn left
+            self.rotate(5)
+
 # ---- User input functions ---- #
 
 def show_lines():
     global lines
+    global player_car
     player_car.showlines = not player_car.showlines
     lines = not lines
 
@@ -268,7 +263,7 @@ def next_map():
     global bg
     global track_image
 
-    number_track = 2
+    number_track += 1
     for nncar in nnCars:
         nncar.velocity = 0
         nncar.acceleration = 0
@@ -284,7 +279,6 @@ def next_gen():
     global selectedCars
     global generation
     global alive
-    global selected
     global nnCars
     global num_of_nnCars
 
@@ -298,19 +292,19 @@ def next_gen():
     for i in range(num_of_nnCars):
         nnCars.append(Car(layerSizes))
 
-    # Give each child car random values from both parents
+    # Randomly mix parent genomes for each child
     parent1_weights = list_from_array(selectedCars[0].weights)
     parent2_weights = list_from_array(selectedCars[1].weights)
     parent1_biases = list_from_array(selectedCars[0].biases)
     parent2_biases = list_from_array(selectedCars[1].biases)
 
     for i in range(2, num_of_nnCars-2):
-        random_weight_choices = np.random.randint(2, size=len(parent1_weights))
-        random_bias_choices = np.random.randint(2, size=len(parent1_biases))
-        cross_weights = np.choose(random_weight_choices, [parent1_weights, parent2_weights])
+        random_weight_choices = np.random.randint(2, size=number_of_weights) # Generate random number lists
+        random_bias_choices = np.random.randint(2, size=number_of_biases)
+        cross_weights = np.choose(random_weight_choices, [parent1_weights, parent2_weights]) # Choose values from parents
         cross_biases = np.choose(random_bias_choices, [parent1_biases, parent2_biases])
-        nnCars[i].weights = set_property(cross_weights, nnCars[i].weights)
-        nnCars[i].biases = set_property(cross_biases, nnCars[i].biases)
+        nnCars[i].weights = array_from_list(cross_weights, nnCars[i].weights) # Give values to child cars
+        nnCars[i].biases = array_from_list(cross_biases, nnCars[i].biases)
 
     # Add parent cars to next generation
     nnCars[num_of_nnCars-2] = selectedCars[0]
@@ -321,14 +315,19 @@ def next_gen():
         car.resetPosition()
         car.collided = False
 
-    for i in range(num_of_nnCars-2):
-        nnCars[i].weights = modify_n_randomly(nnCars[i].weights, n=mutationRate)
-        nnCars[i].biases = modify_n_randomly(nnCars[i].biases, n=mutationRate)
+    # Split mutationRate proportionately between weights and biases
+    weight_mutation_rate = math.ceil(mutationRate * number_of_weights/(number_of_weights + number_of_biases))
+    bias_mutation_rate = math.ceil(mutationRate * number_of_biases/(number_of_weights + number_of_biases))
 
-    if number_track != 1:
-        for nncar in nnCars:
-            nncar.x = 140
-            nncar.y = 610
+    # Modify each genome by a random number of mutations centered on it's split of mutationRate
+    weight_mutation_counts = poisson.rvs(weight_mutation_rate, size=num_of_nnCars-2)
+    bias_mutation_counts = poisson.rvs(bias_mutation_rate, size=num_of_nnCars-2)
+    for index, (weight_mutations, bias_mutations) in enumerate(zip(weight_mutation_counts, bias_mutation_counts)):
+        nnCars[index].weights = modify_n_randomly(nnCars[index].weights, n=weight_mutations)
+        nnCars[index].biases = modify_n_randomly(nnCars[index].biases, n=bias_mutations)
+
+    for car in nnCars:
+        car.x, car.y = (120, 480) if number_track == 1 else (140, 610)
 
     selectedCars.clear()
 
@@ -351,13 +350,8 @@ def reload_map():
     selectedCars.clear()
     for i in range(num_of_nnCars):
         nnCars.append(Car(layerSizes))
-    for nncar in nnCars:
-        if number_track == 1:
-            nncar.x = 120
-            nncar.y = 480
-        elif number_track == 2:
-            nncar.x = 100
-            nncar.y = 300
+    for car in nnCars:
+        car.x, car.y = (120, 480) if number_track == 1 else (140, 610)
 
 def swap_sprite(car):
     originals = [white_small_car, white_big_car, green_small_car, green_big_car]
@@ -373,10 +367,10 @@ def clear_selected_cars():
     selectedCars.clear()
 
 def mouseclick():
-    global selected
     global alive
     global nnCars
     global selectedCars
+    global is_paused
     mouses = pygame.mouse.get_pressed()
     if mouses[0]: # Left click, choose parent cars
         pos = pygame.mouse.get_pos()
@@ -390,7 +384,8 @@ def mouseclick():
                     if nncar.collided:
                         nncar.velocity = 0
                         nncar.acceleration = 0
-                    nncar.update()
+                    if not is_paused:
+                        nncar.update()
                 else: # If it's an unselected car, select it
                     if len(selectedCars) < 2:
                         selectedCars.append(nncar)
@@ -398,8 +393,9 @@ def mouseclick():
                         if nncar.collided:
                             nncar.velocity = 0
                             nncar.acceleration = 0
-                        nncar.update()
-                break # Only affect one car at a time
+                        if not is_paused:
+                            nncar.update()
+                break # Only affect one car per click
 
     if mouses[2]: # Right click, remove cars
         pos = pygame.mouse.get_pos()
@@ -411,7 +407,7 @@ def mouseclick():
                     nnCars.remove(nncar)
                     if not nncar.collided:
                         alive -= 1
-                break
+                break # Only affect one car per click
 
 def swap_player():
     global player
@@ -440,38 +436,42 @@ def choose_cars():
         selectedCars.append(chosen_car)
         chosen_car = swap_sprite(chosen_car)
 
+def pause_game():
+    global is_paused
+    is_paused = not is_paused
+
 # ---- Player input reaction ---- #
 
 def key_event():
-    if event.key == ord('l'):
-        show_lines()
-    if event.key == ord('c'):
-        scrap_stuck_cars()
-    if event.key == ord('a'):
-        swap_player()
-    if event.key == ord('d'):
-        swap_display()
-    if event.key == ord('n'):
-        next_map()
-    if event.key == ord('z'):
-        clear_selected_cars()
-    if event.key == ord('b'):
-        next_gen()
-    if event.key == ord('m'):
-        next_gen_and_map()
-    if event.key == ord('r'):
-        reload_map()
-    if event.key == ord('g'):
-        choose_cars()
+    mappings = [
+        ('l', show_lines),
+        ('c', scrap_stuck_cars),
+        ('a', swap_player),
+        ('d', swap_display),
+        ('n', next_map),
+        ('z', clear_selected_cars),
+        ('b', next_gen),
+        ('m', next_gen_and_map),
+        ('r', reload_map),
+        ('g', choose_cars),
+        ('p', pause_game)
+    ]
+    [func() for (key, func) in mappings if ord(key) == event.key]
     if ord('0') <= event.key and event.key <= ord('9'):
         change_mutation_rate(event.key)
+
+# ---- Global car variables ---- # These can't go at the top since they need the Car class to be defined first
+
+player_car = Car(layerSizes) # Car instance driven by player, technically a global variable but must come after Car definition
+for i in range(num_of_nnCars): # Populate game with neural net-driven cars
+    nnCars.append(Car(layerSizes))
 
 # ---- Game loop ---- #
 
 while True:
     for event in pygame.event.get(): #Check for events
         if event.type == pygame.QUIT:
-            pygame.quit() #quits
+            pygame.quit()
             quit()
 
         if event.type == pygame.KEYDOWN: #If user uses the keyboard
@@ -486,11 +486,11 @@ while True:
     if keys[pygame.K_RIGHT]:
         player_car.rotate(5)
     if keys[pygame.K_UP]:
-        player_car.set_accel(0.2)
+        player_car.acceleration = 0.2
     else:
-        player_car.set_accel(0)
+        player_car.acceleration = 0
     if keys[pygame.K_DOWN]:
-        player_car.set_accel(-0.2)
+        player_car.acceleration = -0.2
 
     redrawGameWindow()
     clock.tick(FPS)
