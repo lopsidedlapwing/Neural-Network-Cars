@@ -145,8 +145,6 @@ class Car:
     def __init__(self, sizes):
         self.biases = [np.random.randn(y, 1) for y in sizes[1:]] #Biases
         self.weights = [np.random.randn(y, x) for x, y in zip(sizes[:-1], sizes[1:])] #Weights
-        #self.biases = [np.random.uniform(size=(y, 1)) for y in sizes[1:]] #Biases
-        #self.weights = [np.random.uniform(size=(y, x)) for x, y in zip(sizes[:-1], sizes[1:])] #Weights
         self.collision_points = [(0, 0)] * 5 # Points at which car could collide
         self.distances = [0] * 5 # Distances to above points, drawn in-game as red lines
         self.angle_offsets = [0, 45, -45, 90, -90] # Relative angles of collision lines
