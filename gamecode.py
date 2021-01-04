@@ -15,7 +15,7 @@ black = (0, 0, 0)
 gray = pygame.Color('gray12')
 Color_line = (255, 0, 0)
 
-FPS = 30
+FPS = 60
 selectedCars = []
 selected = 0
 lines = False #If true then lines of player are shown
@@ -38,12 +38,12 @@ num_of_nnCars = 100 #Number of neural network cars
 alive = num_of_nnCars #Number of not collided (alive) cars
 collidedCars = [] #List containing collided cars
 
-# These are sort of neural network variables, but they're used in game code so they're saved here
-generation = 1
+generation = 1 # These are sort of neural network variables, but they're used in game code so they're saved here
 mutationRate = 90
 
 gameDisplay = pygame.display.set_mode(size) #creates screen
 clock = pygame.time.Clock()
+is_paused = False
 
 # ---- Game functions ---- #
 
@@ -257,4 +257,3 @@ class Maze:
                 if neighbour.has_all_walls():
                     neighbours.append((direction, neighbour))
         return neighbours
-
